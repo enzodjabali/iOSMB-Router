@@ -66,6 +66,7 @@ type MessageInfo struct {
 	PersonID    string        `json:"personId"`
 	Attachments []interface{} `json:"attachments"`
 	Type        string        `json:"type"`
+	Date        int64         `json:"date,omitempty"` // Unix timestamp in milliseconds
 }
 
 type OutgoingMessage struct {
@@ -73,6 +74,13 @@ type OutgoingMessage struct {
 	Text        string        `json:"text"`
 	Subject     string        `json:"subject"`
 	Attachments []interface{} `json:"attachments"`
+}
+
+// Message history structures
+type HistoricalMessage struct {
+	Date   int64  `json:"date"`   // Unix timestamp in milliseconds
+	Sender int    `json:"sender"` // 0 = received, 1 = sent by you
+	Text   string `json:"text"`
 }
 
 var (
@@ -321,20 +329,28 @@ func handleAutoReplyAfterSilence(msg MessageInfo, rule Rule, senderID string) {
 		return
 	}
 
-	// Get last conversation time from in-memory map
-	// Note: This only tracks messages seen during this session
-	// For cross-restart tracking, the server would need to be queried for message history
+	// Try to get last conversation time from in-memory map first
 	lastTime, exists := lastMessageTimeMap[senderID]
+	
 	if !exists {
-		// First message from this sender in this session, don't auto-reply yet
-		log.Printf("First message from %s in this session, tracking conversation time", msg.Author)
-		return
+		// Not in memory, try to fetch from server
+		log.Printf("First message from %s in this session, fetching message history from server", msg.Author)
+		serverLastTime, err := getLastMessageTimeFromServer(msg.ChatID)
+		if err != nil {
+			log.Printf("Warning: Could not fetch message history: %v", err)
+			log.Printf("Skipping auto-reply for first message (cannot verify conversation history)")
+			// Don't send auto-reply if we can't verify the silence period
+			// This prevents sending unwanted auto-replies after restart
+			return
+		}
+		lastTime = serverLastTime
+		log.Printf("Retrieved last message time from server: %s", lastTime.Format("2006-01-02 15:04:05"))
 	}
-
+	
 	// Calculate time since last conversation
 	timeSinceLastMsg := time.Since(lastTime)
-	requiredSilence := time.Duration(rule.SilenceDurationSecs) * time.Second
 
+	requiredSilence := time.Duration(rule.SilenceDurationSecs) * time.Second
 	log.Printf("Time since last message from %s: %v (required: %v)", 
 		msg.Author, timeSinceLastMsg, requiredSilence)
 
@@ -356,6 +372,54 @@ func handleAutoReplyAfterSilence(msg MessageInfo, rule Rule, senderID string) {
 	} else {
 		log.Printf("Not enough silence time for %s, skipping auto-reply", msg.Author)
 	}
+}
+
+func getLastMessageTimeFromServer(chatID string) (time.Time, error) {
+	protocol := "http"
+	if config.SSL {
+		protocol = "https"
+	}
+	
+	// Try to get messages for this chat - limit to last few messages to find the most recent
+	url := fmt.Sprintf("%s://%s:%d/getMessages?chatId=%s&limit=10", protocol, config.ServerIP, config.ServerPort, chatID)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", config.Password)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return time.Time{}, fmt.Errorf("server returned status: %d", resp.StatusCode)
+	}
+
+	var messages []HistoricalMessage
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return time.Time{}, fmt.Errorf("decode response: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return time.Time{}, fmt.Errorf("no messages found for chat")
+	}
+
+	// Find the most recent message (highest timestamp)
+	var mostRecent int64 = 0
+	for _, msg := range messages {
+		if msg.Date > mostRecent {
+			mostRecent = msg.Date
+		}
+	}
+
+	// Convert from milliseconds to time.Time
+	return time.Unix(0, mostRecent*int64(time.Millisecond)), nil
 }
 
 func sendMessage(msg OutgoingMessage) {
