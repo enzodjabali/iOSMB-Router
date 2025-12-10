@@ -11,9 +11,19 @@ rules:
       - "+33755442211"
     enabled: true
 
-  # Example: Auto-reply to a specific sender
+  # Example: Auto-reply to a specific sender (immediate reply)
   - name: "Auto reply example"
     type: auto_reply
     from_sender: "+33233556699"
     reply_text: "I will answer you shortly"
+    enabled: true
+
+  # Example: Auto-reply after silence period (e.g., 1 hour)
+  # This will only reply if there hasn't been any conversation with the sender
+  # for the specified duration. The reply is sent only once per silence period.
+  - name: "Auto reply after 1 hour of silence"
+    type: auto_reply_after_silence
+    from_sender: "+33611223344"
+    reply_text: "I will reply you soon"
+    silence_duration_secs: 3600  # 1 hour = 3600 seconds (1h), 7200 = 2h, 1800 = 30mins
     enabled: true
