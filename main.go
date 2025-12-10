@@ -84,15 +84,15 @@ type HistoricalMessage struct {
 }
 
 var (
-	conn                *websocket.Conn
-	config              Config
-	rules               Rules
-	lastMessageTimeMap  map[string]time.Time      // Tracks last message time per sender (in-memory only)
-	autoReplyStatusMap  map[string]bool           // Tracks if auto-reply was already sent
+	conn               *websocket.Conn
+	config             Config
+	rules              Rules
+	lastMessageTimeMap map[string]time.Time // Tracks last message time per sender (in-memory only)
+	autoReplyStatusMap map[string]bool      // Tracks if auto-reply was already sent
 )
 
 func main() {
-	log.Println("iOSMB-Router starting...")
+	log.Println("INFO: iOSMB-Router starting...")
 
 	// Configure timezone from environment variable
 	configureTimezone()
@@ -106,10 +106,10 @@ func main() {
 
 	// Load rules
 	if err := loadRules(config.RulesFile); err != nil {
-		log.Fatalf("Failed to load rules: %v", err)
+		log.Fatalf("ERROR: Failed to load rules: %v", err)
 	}
 
-	log.Printf("Loaded %d rules from %s", len(rules.Rules), config.RulesFile)
+	log.Printf("INFO: Loaded %d rules from %s", len(rules.Rules), config.RulesFile)
 
 	// Connect to WebSocket server
 	connectToServer()
@@ -119,7 +119,7 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	<-sigChan
-	log.Println("Shutting down gracefully...")
+	log.Println("INFO: Shutting down gracefully...")
 	
 	if conn != nil {
 		conn.Close()
@@ -132,13 +132,13 @@ func configureTimezone() {
 	
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
-		log.Printf("Warning: Invalid timezone '%s', using UTC: %v", tzName, err)
+		log.Printf("WARNING: Invalid timezone '%s', using UTC: %v", tzName, err)
 		loc = time.UTC
 	}
 	
 	// Set the local timezone for the application
 	time.Local = loc
-	log.Printf("Timezone set to: %s", loc.String())
+	log.Printf("INFO: Timezone set to: %s", loc.String())
 }
 
 func loadConfig() {
@@ -151,7 +151,7 @@ func loadConfig() {
 		RulesFile:  getEnv("IOSMB_RULES_FILE", "rules.yaml"),
 	}
 
-	log.Printf("Server: %s:%d (SSL: %v)", config.ServerIP, config.ServerPort, config.SSL)
+	log.Printf("INFO: Server: %s:%d (SSL: %v)", config.ServerIP, config.ServerPort, config.SSL)
 }
 
 func loadRules(filename string) error {
@@ -175,15 +175,15 @@ func connectToServer() {
 
 	// iOSMB server expects authentication as query parameter
 	url := fmt.Sprintf("%s://%s:%d?auth=%s", protocol, config.ServerIP, config.ServerPort, config.Password)
-	log.Printf("Connecting to %s://%s:%d...", protocol, config.ServerIP, config.ServerPort)
+	log.Printf("INFO: Connecting to %s://%s:%d...", protocol, config.ServerIP, config.ServerPort)
 
 	var err error
 	conn, _, err = websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		log.Fatalf("ERROR: Failed to connect: %v", err)
 	}
 
-	log.Println("Connected to iOSMB server")
+	log.Println("INFO: Connected to iOSMB server")
 
 	// Start listening for messages
 	go listenForMessages()
@@ -196,7 +196,7 @@ func listenForMessages() {
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("Read error: %v", err)
+			log.Printf("ERROR: Read error: %v", err)
 			time.Sleep(5 * time.Second)
 			connectToServer()
 			return
@@ -204,12 +204,12 @@ func listenForMessages() {
 
 		var wsMsg WSMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
-			log.Printf("Failed to parse message: %v", err)
+			log.Printf("ERROR: Failed to parse message: %v", err)
 			continue
 		}
 
 		// Log all WebSocket actions
-		log.Printf("Received action: %s", wsMsg.Action)
+		log.Printf("INFO: Received action: %s", wsMsg.Action)
 
 		// Process incoming messages (handle both camelCase and snake_case)
 		if wsMsg.Action == "newMessage" || wsMsg.Action == "new_message" {
@@ -223,13 +223,13 @@ func processMessage(data interface{}) {
 	msgBytes, _ := json.Marshal(data)
 	var msgData MessageData
 	if err := json.Unmarshal(msgBytes, &msgData); err != nil {
-		log.Printf("Failed to parse message data: %v", err)
+		log.Printf("ERROR: Failed to parse message data: %v", err)
 		return
 	}
 
 	// Check if we have message data
 	if len(msgData.Message) == 0 {
-		log.Printf("No message in data")
+		log.Printf("INFO: No message in data")
 		return
 	}
 
@@ -243,7 +243,7 @@ func processMessage(data interface{}) {
 	
 	// Skip messages sent by you (sender == 1)
 	if msg.Sender == 1 {
-		log.Printf("Skipping own message")
+		log.Printf("INFO: Skipping own message")
 		// Update last conversation time when you send a message
 		lastMessageTimeMap[senderID] = time.Now()
 		// Reset auto-reply status when you send a message (conversation resumed)
@@ -252,7 +252,7 @@ func processMessage(data interface{}) {
 	}
 
 	// Log every incoming message with sender details
-	log.Printf("[NEW MESSAGE] From: %s | Text: %s | ChatID: %s | Type: %s", 
+	log.Printf("INFO: [NEW MESSAGE] From: %s | Text: %s | ChatID: %s | Type: %s", 
 		msg.Author, 
 		truncate(msg.Text, 50), 
 		msg.ChatID,
@@ -296,7 +296,7 @@ func matchesSender(sender, pattern string) bool {
 
 func handleRedirect(msg MessageInfo, rule Rule) {
 	for _, receiver := range rule.ToReceivers {
-		log.Printf("Redirecting to %s", receiver)
+		log.Printf("INFO: Redirecting to %s", receiver)
 
 		outMsg := OutgoingMessage{
 			Address:     receiver,
@@ -310,8 +310,7 @@ func handleRedirect(msg MessageInfo, rule Rule) {
 }
 
 func handleAutoReply(msg MessageInfo, rule Rule) {
-	log.Printf("Auto-replying to %s", msg.Author)
-
+	log.Printf("INFO: Auto-replying to %s", msg.Author)
 	outMsg := OutgoingMessage{
 		Address:     msg.ChatID,
 		Text:        rule.ReplyText,
@@ -325,38 +324,29 @@ func handleAutoReply(msg MessageInfo, rule Rule) {
 func handleAutoReplyAfterSilence(msg MessageInfo, rule Rule, senderID string) {
 	// Check if auto-reply was already sent during this silence period
 	if autoReplyStatusMap[senderID] {
-		log.Printf("Auto-reply already sent to %s during this silence period", msg.Author)
+		log.Printf("INFO: Auto-reply already sent to %s during this silence period", msg.Author)
 		return
 	}
 
-	// Try to get last conversation time from in-memory map first
+	// Get last message time from in-memory map
 	lastTime, exists := lastMessageTimeMap[senderID]
 	
 	if !exists {
-		// Not in memory, try to fetch from server
-		log.Printf("First message from %s in this session, fetching message history from server", msg.Author)
-		serverLastTime, err := getLastMessageTimeFromServer(msg.ChatID)
-		if err != nil {
-			log.Printf("Warning: Could not fetch message history: %v", err)
-			log.Printf("Skipping auto-reply for first message (cannot verify conversation history)")
-			// Don't send auto-reply if we can't verify the silence period
-			// This prevents sending unwanted auto-replies after restart
-			return
-		}
-		lastTime = serverLastTime
-		log.Printf("Retrieved last message time from server: %s", lastTime.Format("2006-01-02 15:04:05"))
+		// First message from this sender - start tracking
+		log.Printf("INFO: First message from %s in this session, starting to track conversation time", msg.Author)
+		return
 	}
 	
-	// Calculate time since last conversation
+	// Calculate time since last message (from either sender)
 	timeSinceLastMsg := time.Since(lastTime)
-
 	requiredSilence := time.Duration(rule.SilenceDurationSecs) * time.Second
-	log.Printf("Time since last message from %s: %v (required: %v)", 
+	
+	log.Printf("INFO: Time since last message from %s: %v (required: %v)", 
 		msg.Author, timeSinceLastMsg, requiredSilence)
 
 	// Check if enough time has passed
 	if timeSinceLastMsg >= requiredSilence {
-		log.Printf("Auto-replying to %s after %v of silence", msg.Author, timeSinceLastMsg)
+		log.Printf("INFO: Auto-replying to %s after %v of silence", msg.Author, timeSinceLastMsg)
 
 		outMsg := OutgoingMessage{
 			Address:     msg.ChatID,
@@ -370,56 +360,9 @@ func handleAutoReplyAfterSilence(msg MessageInfo, rule Rule, senderID string) {
 		// Mark that auto-reply was sent for this silence period
 		autoReplyStatusMap[senderID] = true
 	} else {
-		log.Printf("Not enough silence time for %s, skipping auto-reply", msg.Author)
+		log.Printf("INFO: Not enough silence time for %s (missing %v), skipping auto-reply", 
+			msg.Author, requiredSilence-timeSinceLastMsg)
 	}
-}
-
-func getLastMessageTimeFromServer(chatID string) (time.Time, error) {
-	protocol := "http"
-	if config.SSL {
-		protocol = "https"
-	}
-	
-	// Try to get messages for this chat - limit to last few messages to find the most recent
-	url := fmt.Sprintf("%s://%s:%d/getMessages?chatId=%s&limit=10", protocol, config.ServerIP, config.ServerPort, chatID)
-	
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", config.Password)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return time.Time{}, fmt.Errorf("server returned status: %d", resp.StatusCode)
-	}
-
-	var messages []HistoricalMessage
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
-		return time.Time{}, fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(messages) == 0 {
-		return time.Time{}, fmt.Errorf("no messages found for chat")
-	}
-
-	// Find the most recent message (highest timestamp)
-	var mostRecent int64 = 0
-	for _, msg := range messages {
-		if msg.Date > mostRecent {
-			mostRecent = msg.Date
-		}
-	}
-
-	// Convert from milliseconds to time.Time
-	return time.Unix(0, mostRecent*int64(time.Millisecond)), nil
 }
 
 func sendMessage(msg OutgoingMessage) {
@@ -433,13 +376,13 @@ func sendMessage(msg OutgoingMessage) {
 	
 	jsonData, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("❌ Failed to marshal message: %v", err)
+		log.Printf("ERROR: Failed to marshal message: %v", err)
 		return
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("❌ Failed to create request: %v", err)
+		log.Printf("ERROR: Failed to create request: %v", err)
 		return
 	}
 
@@ -449,13 +392,13 @@ func sendMessage(msg OutgoingMessage) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Failed to send message: %v", err)
+		log.Printf("ERROR: Failed to send message: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Server returned error: %d", resp.StatusCode)
+		log.Printf("ERROR: Server returned error: %d", resp.StatusCode)
 		return
 	}
 
@@ -468,7 +411,7 @@ func keepAlive() {
 
 	for range ticker.C {
 		if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-			log.Printf("Ping failed: %v", err)
+			log.Printf("ERROR: Ping failed: %v", err)
 			return
 		}
 	}

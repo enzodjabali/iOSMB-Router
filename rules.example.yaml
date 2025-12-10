@@ -19,8 +19,9 @@ rules:
     enabled: true
 
   # Example: Auto-reply after silence period (e.g., 1 hour)
-  # This will only reply if there hasn't been any conversation with the sender
-  # for the specified duration. The reply is sent only once per silence period.
+  # This tracks BOTH incoming and outgoing messages. If either you or the sender
+  # messages within the silence period, the timer resets.
+  # After router restart: 1st message starts tracking, 2nd message checks if enough time passed.
   - name: "Auto reply after 1 hour of silence"
     type: auto_reply_after_silence
     from_sender: "+33611223344"

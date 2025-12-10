@@ -111,7 +111,7 @@ rules:
     enabled: true
 ```
 
-**Note:** The silence tracking is session-based (in-memory) and tracks BOTH incoming and outgoing messages. When you reply to someone, it resets the silence timer. After a restart, the router attempts to query the server for message history. If the query fails (server doesn't support the endpoint), it will skip the first message and start tracking from there to avoid sending unwanted auto-replies.
+**Note:** The silence tracking tracks BOTH incoming and outgoing messages in-memory. When either you or the sender messages, it updates the timer. After a restart, tracking begins fresh - the first message from each sender starts the timer, and the second message will trigger the auto-reply if the silence duration has elapsed.
 
 ### Rule Properties
 
