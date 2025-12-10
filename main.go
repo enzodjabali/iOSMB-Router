@@ -31,12 +31,13 @@ type Rules struct {
 }
 
 type Rule struct {
-	Name        string   `yaml:"name"`
-	Type        string   `yaml:"type"` // "redirect" or "auto_reply"
-	FromSender  string   `yaml:"from_sender"`
-	ToReceivers []string `yaml:"to_receivers,omitempty"`
-	ReplyText   string   `yaml:"reply_text,omitempty"`
-	Enabled     bool     `yaml:"enabled"`
+	Name                string   `yaml:"name"`
+	Type                string   `yaml:"type"` // "redirect", "auto_reply", or "auto_reply_after_silence"
+	FromSender          string   `yaml:"from_sender"`
+	ToReceivers         []string `yaml:"to_receivers,omitempty"`
+	ReplyText           string   `yaml:"reply_text,omitempty"`
+	SilenceDurationSecs int      `yaml:"silence_duration_secs,omitempty"` // Time in seconds before auto-reply triggers
+	Enabled             bool     `yaml:"enabled"`
 }
 
 // WebSocket message structures
@@ -75,13 +76,19 @@ type OutgoingMessage struct {
 }
 
 var (
-	conn   *websocket.Conn
-	config Config
-	rules  Rules
+	conn                *websocket.Conn
+	config              Config
+	rules               Rules
+	lastConversationMap map[string]time.Time      // Tracks last message time per sender
+	autoReplyStatusMap  map[string]bool           // Tracks if auto-reply was already sent
 )
 
 func main() {
 	log.Println("iOSMB-Router starting...")
+
+	// Initialize tracking maps
+	lastConversationMap = make(map[string]time.Time)
+	autoReplyStatusMap = make(map[string]bool)
 
 	// Load configuration from environment or config file
 	loadConfig()
@@ -201,9 +208,21 @@ func processMessage(data interface{}) {
 
 	msg := msgData.Message[0]
 	
+	// Get sender identifier (prefer ChatID, fallback to Author)
+	senderID := msg.ChatID
+	if senderID == "" {
+		senderID = msg.Author
+	}
+
+	// Update last conversation time for this sender
+	currentTime := time.Now()
+	lastConversationMap[senderID] = currentTime
+	
 	// Skip messages sent by you (sender == 1)
 	if msg.Sender == 1 {
 		log.Printf("Skipping own message")
+		// Reset auto-reply status when you send a message (conversation resumed)
+		autoReplyStatusMap[senderID] = false
 		return
 	}
 
@@ -231,6 +250,8 @@ func processMessage(data interface{}) {
 				handleRedirect(msg, rule)
 			case "auto_reply":
 				handleAutoReply(msg, rule)
+			case "auto_reply_after_silence":
+				handleAutoReplyAfterSilence(msg, rule, senderID)
 			default:
 				log.Printf("Unknown rule type: %s", rule.Type)
 			}
@@ -270,6 +291,48 @@ func handleAutoReply(msg MessageInfo, rule Rule) {
 	}
 
 	sendMessage(outMsg)
+}
+
+func handleAutoReplyAfterSilence(msg MessageInfo, rule Rule, senderID string) {
+	// Check if auto-reply was already sent during this silence period
+	if autoReplyStatusMap[senderID] {
+		log.Printf("Auto-reply already sent to %s during this silence period", msg.Author)
+		return
+	}
+
+	// Get last conversation time
+	lastTime, exists := lastConversationMap[senderID]
+	if !exists {
+		// First message from this sender, don't auto-reply yet
+		log.Printf("First message from %s, tracking conversation time", msg.Author)
+		return
+	}
+
+	// Calculate time since last conversation
+	timeSinceLastMsg := time.Since(lastTime)
+	requiredSilence := time.Duration(rule.SilenceDurationSecs) * time.Second
+
+	log.Printf("Time since last message from %s: %v (required: %v)", 
+		msg.Author, timeSinceLastMsg, requiredSilence)
+
+	// Check if enough time has passed
+	if timeSinceLastMsg >= requiredSilence {
+		log.Printf("Auto-replying to %s after %v of silence", msg.Author, timeSinceLastMsg)
+
+		outMsg := OutgoingMessage{
+			Address:     msg.ChatID,
+			Text:        rule.ReplyText,
+			Subject:     "",
+			Attachments: []interface{}{},
+		}
+
+		sendMessage(outMsg)
+		
+		// Mark that auto-reply was sent for this silence period
+		autoReplyStatusMap[senderID] = true
+	} else {
+		log.Printf("Not enough silence time for %s, skipping auto-reply", msg.Author)
+	}
 }
 
 func sendMessage(msg OutgoingMessage) {
