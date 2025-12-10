@@ -1,0 +1,19 @@
+# Example rules configuration
+# Copy this file to rules.yaml and customize
+
+rules:
+  # Example: Redirect messages from a sender to multiple recipients
+  - name: "Forward Netflix to family"
+    type: redirect
+    from_sender: "Netflix"
+    to_receivers:
+      - "+33722335544"
+      - "+33755442211"
+    enabled: true
+
+  # Example: Auto-reply to a specific sender
+  - name: "Auto reply example"
+    type: auto_reply
+    from_sender: "+33233556699"
+    reply_text: "I will answer you shortly"
+    enabled: true

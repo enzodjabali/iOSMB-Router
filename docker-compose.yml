@@ -1,0 +1,28 @@
+services:
+  iosmb-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # iOSMB Server Configuration (same as your client)
+      - IOSMB_SERVER_IP=${IOSMB_SERVER_IP:-192.168.1.100}
+      - IOSMB_SERVER_PORT=${IOSMB_SERVER_PORT:-8180}
+      - IOSMB_SERVER_PASSWORD=${IOSMB_SERVER_PASSWORD:-your-password-here}
+      - IOSMB_SERVER_SSL=${IOSMB_SERVER_SSL:-false}
+      
+      # Rules file location
+      - IOSMB_RULES_FILE=${IOSMB_RULES_FILE:-rules.yaml}
+    
+    volumes:
+      # Mount your rules file
+      - ./rules.yaml:/app/rules.yaml:ro
+    
+    restart: unless-stopped
+    
+    # Optional: if using Docker networks
+    # networks:
+    #   - iosmb-network
+
+# networks:
+#   iosmb-network:
+#     external: true
