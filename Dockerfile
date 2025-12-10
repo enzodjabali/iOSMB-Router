@@ -18,8 +18,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o iosmb-router .
 # Production stage
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS and tzdata for timezone support
+RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 

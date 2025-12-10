@@ -79,15 +79,18 @@ var (
 	conn                *websocket.Conn
 	config              Config
 	rules               Rules
-	lastConversationMap map[string]time.Time      // Tracks last message time per sender
+	lastMessageTimeMap  map[string]time.Time      // Tracks last message time per sender (in-memory only)
 	autoReplyStatusMap  map[string]bool           // Tracks if auto-reply was already sent
 )
 
 func main() {
 	log.Println("iOSMB-Router starting...")
 
+	// Configure timezone from environment variable
+	configureTimezone()
+
 	// Initialize tracking maps
-	lastConversationMap = make(map[string]time.Time)
+	lastMessageTimeMap = make(map[string]time.Time)
 	autoReplyStatusMap = make(map[string]bool)
 
 	// Load configuration from environment or config file
@@ -109,9 +112,25 @@ func main() {
 
 	<-sigChan
 	log.Println("Shutting down gracefully...")
+	
 	if conn != nil {
 		conn.Close()
 	}
+}
+
+func configureTimezone() {
+	// Get timezone from environment variable (default: UTC)
+	tzName := getEnv("TZ", "UTC")
+	
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		log.Printf("Warning: Invalid timezone '%s', using UTC: %v", tzName, err)
+		loc = time.UTC
+	}
+	
+	// Set the local timezone for the application
+	time.Local = loc
+	log.Printf("Timezone set to: %s", loc.String())
 }
 
 func loadConfig() {
@@ -213,14 +232,12 @@ func processMessage(data interface{}) {
 	if senderID == "" {
 		senderID = msg.Author
 	}
-
-	// Update last conversation time for this sender
-	currentTime := time.Now()
-	lastConversationMap[senderID] = currentTime
 	
 	// Skip messages sent by you (sender == 1)
 	if msg.Sender == 1 {
 		log.Printf("Skipping own message")
+		// Update last conversation time when you send a message
+		lastMessageTimeMap[senderID] = time.Now()
 		// Reset auto-reply status when you send a message (conversation resumed)
 		autoReplyStatusMap[senderID] = false
 		return
@@ -257,6 +274,10 @@ func processMessage(data interface{}) {
 			}
 		}
 	}
+
+	// Update last conversation time AFTER processing rules
+	// This ensures the next message can check the time properly
+	lastMessageTimeMap[senderID] = time.Now()
 }
 
 func matchesSender(sender, pattern string) bool {
@@ -300,11 +321,13 @@ func handleAutoReplyAfterSilence(msg MessageInfo, rule Rule, senderID string) {
 		return
 	}
 
-	// Get last conversation time
-	lastTime, exists := lastConversationMap[senderID]
+	// Get last conversation time from in-memory map
+	// Note: This only tracks messages seen during this session
+	// For cross-restart tracking, the server would need to be queried for message history
+	lastTime, exists := lastMessageTimeMap[senderID]
 	if !exists {
-		// First message from this sender, don't auto-reply yet
-		log.Printf("First message from %s, tracking conversation time", msg.Author)
+		// First message from this sender in this session, don't auto-reply yet
+		log.Printf("First message from %s in this session, tracking conversation time", msg.Author)
 		return
 	}
 

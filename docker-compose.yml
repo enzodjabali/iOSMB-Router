@@ -12,6 +12,9 @@ services:
       
       # Rules file location
       - IOSMB_RULES_FILE=${IOSMB_RULES_FILE:-rules.yaml}
+      
+      # Timezone for correct log timestamps (e.g., Europe/Paris, America/New_York)
+      - TZ=${TZ:-Europe/Paris}
     
     volumes:
       # Mount your rules file

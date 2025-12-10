@@ -33,3 +33,6 @@ rules.yaml
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Build
+iosmb-router

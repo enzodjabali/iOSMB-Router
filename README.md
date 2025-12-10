@@ -97,15 +97,32 @@ rules:
     enabled: true
 ```
 
+### Auto-Reply After Silence Rule Example
+
+Automatically reply only if there hasn't been a conversation for a specified time:
+
+```yaml
+rules:
+  - name: "Auto reply after 1 hour of silence"
+    type: auto_reply_after_silence
+    from_sender: "+33611223344"
+    reply_text: "I will reply you soon"
+    silence_duration_secs: 3600  # 1 hour (3600s), 2h (7200s), 30min (1800s)
+    enabled: true
+```
+
+**Note:** The silence tracking is session-based (in-memory). After a restart, the first message from a sender won't trigger the auto-reply. This is intentional to avoid sending auto-replies when you've already responded via the web client or your phone.
+
 ### Rule Properties
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `name` | string | Yes | Descriptive name for the rule |
-| `type` | string | Yes | Rule type: `redirect` or `auto_reply` |
+| `type` | string | Yes | Rule type: `redirect`, `auto_reply`, or `auto_reply_after_silence` |
 | `from_sender` | string | Yes | Sender name or number to match (case-insensitive substring) |
 | `to_receivers` | array | For redirect | List of phone numbers to forward to |
 | `reply_text` | string | For auto_reply | Text to send as automatic reply |
+| `silence_duration_secs` | integer | For auto_reply_after_silence | Silence duration in seconds before auto-reply triggers |
 | `enabled` | boolean | Yes | Enable/disable the rule without deleting it |
 
 ## Environment Variables
@@ -117,6 +134,7 @@ rules:
 | `IOSMB_SERVER_PASSWORD` | - | iOSMB server password |
 | `IOSMB_SERVER_SSL` | `false` | Use WSS instead of WS |
 | `IOSMB_RULES_FILE` | `rules.yaml` | Path to rules configuration file |
+| `TZ` | `UTC` | Timezone for log timestamps (e.g., `Europe/Paris`, `America/New_York`) |
 
 ## How It Works
 
