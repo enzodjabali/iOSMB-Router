@@ -113,16 +113,61 @@ rules:
 
 **Note:** The silence tracking tracks BOTH incoming and outgoing messages in-memory. When either you or the sender messages, it updates the timer. After a restart, tracking begins fresh - the first message from each sender starts the timer, and the second message will trigger the auto-reply if the silence duration has elapsed.
 
+### Scheduled Message Rule Example
+
+Send messages automatically at specific times using cron syntax:
+
+```yaml
+rules:
+  # Every day at 9:00 AM
+  - name: "Daily morning reminder"
+    type: scheduled_message
+    schedule: "0 0 9 * * *"
+    message_text: "Good morning! Don't forget your daily tasks."
+    to_receivers:
+      - "+33611223344"
+      - "+33722335544"
+    enabled: true
+
+  # Every Saturday at 3:30 PM
+  - name: "Weekly Saturday message"
+    type: scheduled_message
+    schedule: "0 30 15 * * 6"
+    message_text: "Happy Saturday!"
+    to_receivers:
+      - "+33611223344"
+    enabled: true
+
+  # Every hour at 55 minutes
+  - name: "Hourly reminder"
+    type: scheduled_message
+    schedule: "0 55 * * * *"
+    message_text: "Hourly check-in"
+    to_receivers:
+      - "+33611223344"
+    enabled: true
+```
+
+**Cron Format:** `second minute hour day month weekday`
+- `*` = any value
+- `*/15` = every 15 units
+- `0 0 9 * * *` = Every day at 9:00:00 AM
+- `0 30 15 * * 6` = Every Saturday at 3:30:00 PM
+- `0 0 */2 * * *` = Every 2 hours
+- `0 0 8-17 * * 1-5` = Every hour from 8 AM to 5 PM on weekdays
+
 ### Rule Properties
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `name` | string | Yes | Descriptive name for the rule |
-| `type` | string | Yes | Rule type: `redirect`, `auto_reply`, or `auto_reply_after_silence` |
-| `from_sender` | string | Yes | Sender name or number to match (case-insensitive substring) |
-| `to_receivers` | array | For redirect | List of phone numbers to forward to |
+| `type` | string | Yes | Rule type: `redirect`, `auto_reply`, `auto_reply_after_silence`, or `scheduled_message` |
+| `from_sender` | string | For redirect/auto_reply | Sender name or number to match (case-insensitive substring) |
+| `to_receivers` | array | For redirect/scheduled | List of phone numbers to forward/send to |
 | `reply_text` | string | For auto_reply | Text to send as automatic reply |
 | `silence_duration_secs` | integer | For auto_reply_after_silence | Silence duration in seconds before auto-reply triggers |
+| `schedule` | string | For scheduled_message | Cron expression (format: `sec min hour day month weekday`) |
+| `message_text` | string | For scheduled_message | Text to send at scheduled times |
 | `enabled` | boolean | Yes | Enable/disable the rule without deleting it |
 
 ## Environment Variables

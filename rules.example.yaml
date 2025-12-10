@@ -28,3 +28,33 @@ rules:
     reply_text: "I will reply you soon"
     silence_duration_secs: 3600  # 1 hour = 3600 seconds (1h), 7200 = 2h, 1800 = 30mins
     enabled: true
+
+  # Example: Scheduled message - Every day at 9:00 AM
+  - name: "Daily morning reminder"
+    type: scheduled_message
+    schedule: "0 0 9 * * *"  # Cron: sec min hour day month weekday
+    message_text: "Good morning! Don't forget your daily tasks."
+    to_receivers:
+      - "+33611223344"
+      - "+33722335544"
+    enabled: false
+
+  # Example: Scheduled message - Every Saturday at 3:30 PM
+  - name: "Weekly Saturday message"
+    type: scheduled_message
+    schedule: "0 30 15 * * 6"  # Every Saturday at 15:30:00
+    message_text: "Happy Saturday! Hope you're having a great weekend."
+    to_receivers:
+      - "+33611223344"
+      - "+33722335544"
+      - "+33755442211"
+    enabled: false
+
+  # Example: Scheduled message - Every hour at 55 minutes
+  - name: "Hourly reminder"
+    type: scheduled_message
+    schedule: "0 55 * * * *"  # At 55 minutes past every hour
+    message_text: "Hourly check-in reminder"
+    to_receivers:
+      - "+33611223344"
+    enabled: false

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,11 +33,13 @@ type Rules struct {
 
 type Rule struct {
 	Name                string   `yaml:"name"`
-	Type                string   `yaml:"type"` // "redirect", "auto_reply", or "auto_reply_after_silence"
-	FromSender          string   `yaml:"from_sender"`
+	Type                string   `yaml:"type"` // "redirect", "auto_reply", "auto_reply_after_silence", or "scheduled_message"
+	FromSender          string   `yaml:"from_sender,omitempty"`
 	ToReceivers         []string `yaml:"to_receivers,omitempty"`
 	ReplyText           string   `yaml:"reply_text,omitempty"`
 	SilenceDurationSecs int      `yaml:"silence_duration_secs,omitempty"` // Time in seconds before auto-reply triggers
+	Schedule            string   `yaml:"schedule,omitempty"`              // Cron expression for scheduled messages
+	MessageText         string   `yaml:"message_text,omitempty"`          // Text for scheduled messages
 	Enabled             bool     `yaml:"enabled"`
 }
 
@@ -89,6 +92,7 @@ var (
 	rules              Rules
 	lastMessageTimeMap map[string]time.Time // Tracks last message time per sender (in-memory only)
 	autoReplyStatusMap map[string]bool      // Tracks if auto-reply was already sent
+	cronScheduler      *cron.Cron           // Cron scheduler for scheduled messages
 )
 
 func main() {
@@ -111,6 +115,9 @@ func main() {
 
 	log.Printf("INFO: Loaded %d rules from %s", len(rules.Rules), config.RulesFile)
 
+	// Initialize and start cron scheduler for scheduled messages
+	initializeScheduledMessages()
+
 	// Connect to WebSocket server
 	connectToServer()
 
@@ -120,6 +127,11 @@ func main() {
 
 	<-sigChan
 	log.Println("INFO: Shutting down gracefully...")
+	
+	// Stop cron scheduler
+	if cronScheduler != nil {
+		cronScheduler.Stop()
+	}
 	
 	if conn != nil {
 		conn.Close()
@@ -165,6 +177,68 @@ func loadRules(filename string) error {
 	}
 
 	return nil
+}
+
+func initializeScheduledMessages() {
+	// Create cron scheduler with seconds precision
+	cronScheduler = cron.New(cron.WithSeconds())
+
+	scheduledCount := 0
+	for _, rule := range rules.Rules {
+		if !rule.Enabled || rule.Type != "scheduled_message" {
+			continue
+		}
+
+		if rule.Schedule == "" {
+			log.Printf("WARNING: Scheduled message rule '%s' has no schedule, skipping", rule.Name)
+			continue
+		}
+
+		if rule.MessageText == "" {
+			log.Printf("WARNING: Scheduled message rule '%s' has no message text, skipping", rule.Name)
+			continue
+		}
+
+		if len(rule.ToReceivers) == 0 {
+			log.Printf("WARNING: Scheduled message rule '%s' has no receivers, skipping", rule.Name)
+			continue
+		}
+
+		// Capture variables for closure
+		ruleName := rule.Name
+		receivers := rule.ToReceivers
+		messageText := rule.MessageText
+
+		// Add scheduled job
+		_, err := cronScheduler.AddFunc(rule.Schedule, func() {
+			log.Printf("INFO: Executing scheduled message: %s", ruleName)
+			for _, receiver := range receivers {
+				outMsg := OutgoingMessage{
+					Address:     receiver,
+					Text:        messageText,
+					Subject:     "",
+					Attachments: []interface{}{},
+				}
+				sendMessage(outMsg)
+			}
+		})
+
+		if err != nil {
+			log.Printf("ERROR: Failed to schedule rule '%s': %v", rule.Name, err)
+			continue
+		}
+
+		log.Printf("INFO: Scheduled message '%s' with cron: %s (receivers: %v)", 
+			rule.Name, rule.Schedule, rule.ToReceivers)
+		scheduledCount++
+	}
+
+	if scheduledCount > 0 {
+		cronScheduler.Start()
+		log.Printf("INFO: Started cron scheduler with %d scheduled messages", scheduledCount)
+	} else {
+		log.Println("INFO: No scheduled messages configured")
+	}
 }
 
 func connectToServer() {
