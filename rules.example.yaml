@@ -5,7 +5,7 @@ rules:
   # Example: Redirect messages from a sender to multiple recipients
   - name: "Forward Netflix to family"
     type: redirect
-    from_sender: "Netflix"
+    from_sender: "NETFLIX"
     to_receivers:
       - "+33722335544"
       - "+33755442211"
@@ -58,3 +58,16 @@ rules:
     to_receivers:
       - "+33611223344"
     enabled: false
+
+  # Example: Forward emails from a specific sender to SMS
+  - name: "Forward important emails to SMS"
+    type: redirect_emails
+    email_server: "mail.my-server.com:993" # IMAP server with port (993 for SSL)
+    username: "postmaster@my-server.com"   # Your email address
+    password: "change_me"                  # Your email password or app password
+    from_sender: "contact@company.com"     # Optional: filter by sender (leave empty for all)
+    to_receivers:
+      - "+33755442211"
+      - "+33611223344"
+    check_interval_secs: 5                 # Check every 5 seconds (default)
+    enabled: true                          # Set to true to enable
