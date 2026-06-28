@@ -213,8 +213,9 @@ func checkForNewEmails(rule Rule, since time.Time) {
 		NotFlag: []imap.Flag{imap.FlagSeen},
 	}
 
-	// If we have a specific sender filter, add it
-	if rule.FromSender != "" {
+	// If we have a specific sender filter, add it.
+	// "*" is treated as a wildcard (no sender filter), same as an empty value.
+	if rule.FromSender != "" && rule.FromSender != "*" {
 		searchCriteria.Header = []imap.SearchCriteriaHeaderField{
 			{Key: "From", Value: rule.FromSender},
 		}
@@ -626,6 +627,11 @@ func processMessage(data interface{}) {
 }
 
 func matchesSender(sender, pattern string) bool {
+	// Wildcard: "*" matches any sender
+	if pattern == "*" {
+		return true
+	}
+
 	// Simple case-insensitive matching
 	// You can extend this with regex or more complex matching
 	return strings.Contains(strings.ToLower(sender), strings.ToLower(pattern))

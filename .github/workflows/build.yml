@@ -3,7 +3,7 @@ name: Build and Publish to GitHub Packages on Tag
 on:
   push:
     tags:
-      - 'v*' # Matches any tag; adjust for specific patterns like 'v*'
+      - '*' # Matches any tag; adjust for specific patterns like 'v*'
 
 jobs:
   build-and-publish:
