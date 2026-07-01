@@ -603,9 +603,7 @@ func processMessage(data interface{}) {
 		}
 
 		// Match against author name, personId, or chatId
-		if matchesSender(msg.Author, rule.FromSender) ||
-			matchesSender(msg.PersonID, rule.FromSender) ||
-			matchesSender(msg.ChatID, rule.FromSender) {
+		if matchesSender(rule.FromSender, msg.Author, msg.PersonID, msg.ChatID) {
 			log.Printf("Rule matched: %s", rule.Name)
 
 			switch rule.Type {
@@ -626,15 +624,53 @@ func processMessage(data interface{}) {
 	lastMessageTimeMap[senderID] = time.Now()
 }
 
-func matchesSender(sender, pattern string) bool {
-	// Wildcard: "*" matches any sender
-	if pattern == "*" {
-		return true
+func matchesSender(pattern string, senders ...string) bool {
+	includes, excludes := parseSenderPattern(pattern)
+
+	for _, ex := range excludes {
+		for _, s := range senders {
+			if matchToken(s, ex) {
+				return false
+			}
+		}
 	}
 
-	// Simple case-insensitive matching
-	// You can extend this with regex or more complex matching
-	return strings.Contains(strings.ToLower(sender), strings.ToLower(pattern))
+	for _, in := range includes {
+		for _, s := range senders {
+			if matchToken(s, in) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func parseSenderPattern(pattern string) (includes, excludes []string) {
+	for _, raw := range strings.Split(pattern, ";") {
+		token := strings.TrimSpace(raw)
+		if token == "" {
+			continue
+		}
+		if strings.HasPrefix(token, "-") {
+			if ex := strings.TrimSpace(token[1:]); ex != "" {
+				excludes = append(excludes, ex)
+			}
+			continue
+		}
+		includes = append(includes, token)
+	}
+	return includes, excludes
+}
+
+func matchToken(sender, token string) bool {
+	if token == "*" {
+		return true
+	}
+	if sender == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(sender), strings.ToLower(token))
 }
 
 func handleRedirect(msg MessageInfo, rule Rule) {
