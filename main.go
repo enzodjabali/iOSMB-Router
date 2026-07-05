@@ -39,6 +39,7 @@ type Rule struct {
 	Name                string   `yaml:"name"`
 	Type                string   `yaml:"type"` // "redirect", "auto_reply", "auto_reply_after_silence", "scheduled_message", or "redirect_emails"
 	FromSender          string   `yaml:"from_sender,omitempty"`
+	ExcludedSenders     string   `yaml:"excluded_senders,omitempty"` // Senders to exclude when from_sender is broad (e.g. "*"): inline ";"-list, a .json file path, or an http(s) URL. File/URL sources are re-read on every message.
 	ToReceivers         []string `yaml:"to_receivers,omitempty"`
 	ReplyText           string   `yaml:"reply_text,omitempty"`
 	SilenceDurationSecs int      `yaml:"silence_duration_secs,omitempty"` // Time in seconds before auto-reply triggers
@@ -132,6 +133,10 @@ func initializeEmailMonitors() {
 			log.Printf("WARNING: Email rule '%s' has no receivers, skipping", rule.Name)
 			continue
 		}
+		if rule.FromSender == "" {
+			log.Printf("WARNING: Email rule '%s' missing from_sender (use \"*\" to match all senders), skipping", rule.Name)
+			continue
+		}
 
 		// Default check interval to 60 seconds if not specified
 		checkInterval := rule.CheckIntervalSecs
@@ -213,9 +218,10 @@ func checkForNewEmails(rule Rule, since time.Time) {
 		NotFlag: []imap.Flag{imap.FlagSeen},
 	}
 
-	// If we have a specific sender filter, add it.
-	// "*" is treated as a wildcard (no sender filter), same as an empty value.
-	if rule.FromSender != "" && rule.FromSender != "*" {
+	// Only "*" matches all senders (no From filter). Any other value filters by
+	// the From header. An empty from_sender is rejected at startup, so it never
+	// reaches here and is not treated as a wildcard.
+	if rule.FromSender != "*" {
 		searchCriteria.Header = []imap.SearchCriteriaHeaderField{
 			{Key: "From", Value: rule.FromSender},
 		}
@@ -602,8 +608,11 @@ func processMessage(data interface{}) {
 			continue
 		}
 
-		// Match against author name, personId, or chatId
-		if matchesSender(rule.FromSender, msg.Author, msg.PersonID, msg.ChatID) {
+		// Match against author name, personId, or chatId.
+		// excluded_senders is resolved fresh on every message so live edits to
+		// a JSON file or remote list take effect without restarting the router.
+		extraExcludes := resolveExcludedSenders(rule.ExcludedSenders)
+		if matchesSender(rule.FromSender, extraExcludes, msg.Author, msg.PersonID, msg.ChatID) {
 			log.Printf("Rule matched: %s", rule.Name)
 
 			switch rule.Type {
@@ -624,9 +633,11 @@ func processMessage(data interface{}) {
 	lastMessageTimeMap[senderID] = time.Now()
 }
 
-func matchesSender(pattern string, senders ...string) bool {
-	includes, excludes := parseSenderPattern(pattern)
-
+// matchesSender reports whether a rule's from_sender pattern matches any of the
+// given sender fields, unless one of them matches an entry in excludes.
+// from_sender is a ";"-separated list of include tokens ("*" matches everyone);
+// exclusions are configured only through excluded_senders (passed as excludes).
+func matchesSender(pattern string, excludes []string, senders ...string) bool {
 	for _, ex := range excludes {
 		for _, s := range senders {
 			if matchToken(s, ex) {
@@ -635,7 +646,7 @@ func matchesSender(pattern string, senders ...string) bool {
 		}
 	}
 
-	for _, in := range includes {
+	for _, in := range splitList(pattern) {
 		for _, s := range senders {
 			if matchToken(s, in) {
 				return true
@@ -646,23 +657,6 @@ func matchesSender(pattern string, senders ...string) bool {
 	return false
 }
 
-func parseSenderPattern(pattern string) (includes, excludes []string) {
-	for _, raw := range strings.Split(pattern, ";") {
-		token := strings.TrimSpace(raw)
-		if token == "" {
-			continue
-		}
-		if strings.HasPrefix(token, "-") {
-			if ex := strings.TrimSpace(token[1:]); ex != "" {
-				excludes = append(excludes, ex)
-			}
-			continue
-		}
-		includes = append(includes, token)
-	}
-	return includes, excludes
-}
-
 func matchToken(sender, token string) bool {
 	if token == "*" {
 		return true
@@ -671,6 +665,115 @@ func matchToken(sender, token string) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(sender), strings.ToLower(token))
+}
+
+// excludedContact models one entry of a JSON excluded-senders list, e.g.
+// [{"name": "John Smith"}, {"name": "Jane Doe"}].
+type excludedContact struct {
+	Name string `json:"name"`
+}
+
+// resolveExcludedSenders turns an excluded_senders spec into a list of sender
+// tokens to exclude. The spec can be one of:
+//   - an inline ";"-separated list ("Alice Martin;Bob Durand;Carol Petit")
+//   - a path to a JSON file ending in ".json"
+//   - an "http://" or "https://" URL returning JSON
+//
+// JSON sources (file or URL) must be an array of objects with a "name" field.
+// File and URL sources are (re)read on every call so the list can change while
+// the router runs. On any load/parse error it logs and returns nil (no extra
+// exclusions) so a broad forward-all rule keeps working instead of stalling.
+func resolveExcludedSenders(spec string) []string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil
+	}
+
+	lower := strings.ToLower(spec)
+	switch {
+	case strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://"):
+		names, err := loadExcludedFromURL(spec)
+		if err != nil {
+			// Redact the query string: excluded_senders URLs may carry credentials
+			// (e.g. ...?password=...) that must not leak into logs.
+			log.Printf("ERROR: Failed to load excluded_senders from URL %s: %v", redactURL(spec), err)
+			return nil
+		}
+		return names
+	case strings.HasSuffix(lower, ".json"):
+		names, err := loadExcludedFromFile(spec)
+		if err != nil {
+			log.Printf("ERROR: Failed to load excluded_senders from file %s: %v", spec, err)
+			return nil
+		}
+		return names
+	default:
+		return splitList(spec)
+	}
+}
+
+// redactURL strips the query string from a URL so credentials passed as query
+// parameters (e.g. "?password=...") are never written to logs.
+func redactURL(raw string) string {
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		return raw[:i] + "?<redacted>"
+	}
+	return raw
+}
+
+// splitList splits an inline ";"-separated list into trimmed, non-empty tokens.
+func splitList(spec string) []string {
+	var out []string
+	for _, raw := range strings.Split(spec, ";") {
+		if token := strings.TrimSpace(raw); token != "" {
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+// parseExcludedJSON extracts the trimmed, non-empty names from a JSON payload
+// shaped like [{"name": "John Smith"}, ...].
+func parseExcludedJSON(data []byte) ([]string, error) {
+	var contacts []excludedContact
+	if err := json.Unmarshal(data, &contacts); err != nil {
+		return nil, fmt.Errorf("parse json: %w", err)
+	}
+
+	var names []string
+	for _, c := range contacts {
+		if name := strings.TrimSpace(c.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+func loadExcludedFromFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseExcludedJSON(data)
+}
+
+func loadExcludedFromURL(url string) ([]string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return parseExcludedJSON(data)
 }
 
 func handleRedirect(msg MessageInfo, rule Rule) {

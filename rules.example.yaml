@@ -11,6 +11,25 @@ rules:
       - "+33755442211"
     enabled: true
 
+  # Example: Forward every message EXCEPT a list of known contacts.
+  # Use from_sender: "*" to match everyone, then list the contacts to skip in
+  # excluded_senders. The excluded list can be provided three ways:
+  #   1. Inline, ";"-separated:  "Alice Martin;Bob Durand;Carol Petit"
+  #   2. A path to a .json file: "/data/excluded_senders.json"
+  #   3. An http(s) URL:         "https://contacts.example.com/api/contacts?..."
+  # For file and URL sources the list is re-read on EVERY incoming message, so
+  # you can update it without restarting the router. JSON sources must be an
+  # array of objects with a "name" field: [{"name": "John Smith"}, ...].
+  - name: "Forward all unknown messages to me"
+    type: redirect
+    from_sender: "*"
+    excluded_senders: "Alice Martin;Bob Durand;Carol Petit"
+    # excluded_senders: "/data/excluded_senders.json"
+    # excluded_senders: "https://contacts.example.com/api/contacts?simplified=true&username=USER&password=CHANGE_ME"
+    to_receivers:
+      - "+33600000000"  # your phone
+    enabled: true
+
   # Example: Auto-reply to a specific sender (immediate reply)
   - name: "Auto reply example"
     type: auto_reply
@@ -65,7 +84,7 @@ rules:
     email_server: "mail.my-server.com:993" # IMAP server with port (993 for SSL)
     username: "postmaster@my-server.com"   # Your email address
     password: "change_me"                  # Your email password or app password
-    from_sender: "contact@company.com"     # Optional: filter by sender (leave empty for all)
+    from_sender: "contact@company.com"     # Filter by sender; use "*" to match ALL senders (empty is not allowed)
     to_receivers:
       - "+33755442211"
       - "+33611223344"

@@ -84,6 +84,52 @@ rules:
     enabled: true
 ```
 
+### Forward Everyone Except a List (Exclusions)
+
+To forward **every** message except a known list of contacts, set `from_sender: "*"`
+and list the contacts to skip in `excluded_senders`:
+
+```yaml
+rules:
+  - name: "Forward all unknown messages to me"
+    type: redirect
+    from_sender: "*"
+    excluded_senders: "Alice Martin;Bob Durand;Carol Petit"
+    to_receivers:
+      - "+33600000000"
+    enabled: true
+```
+
+`excluded_senders` accepts three interchangeable forms:
+
+| Form | Example | Behaviour |
+|------|---------|-----------|
+| Inline list | `"Alice Martin;Bob Durand;Carol Petit"` | `;`-separated names, parsed once from the rule |
+| JSON file | `"/data/excluded_senders.json"` | Any value ending in `.json` is read from disk |
+| HTTP(S) URL | `"https://contacts.example.com/api/contacts?..."` | Any `http://` / `https://` value is fetched |
+
+**File and URL sources are re-read on every incoming message**, so you can update
+the exclusion list (edit the file, or change what the API returns) without
+restarting the router. JSON sources — file or URL — must be an array of objects
+with a `name` field:
+
+```json
+[
+  { "name": "John Smith" },
+  { "name": "Jane Doe" },
+  { "name": "Liam Brown" }
+]
+```
+
+Matching is case-insensitive substring matching, the same as `from_sender`. If a
+file or URL cannot be loaded, the router logs an error and forwards the message
+(the exclusion is skipped for that message) rather than stalling the rule.
+
+> Note: `excluded_senders` is the only way to exclude contacts. The older
+> workaround of inlining exclusions into `from_sender` with a `-` prefix
+> (`"*;-Alice Martin;-Bob Durand;..."`) has been removed and no longer has any
+> effect — move those names into `excluded_senders` instead.
+
 ### Auto-Reply Rule Example
 
 Automatically reply to a specific sender:
@@ -162,7 +208,8 @@ rules:
 |----------|------|----------|-------------|
 | `name` | string | Yes | Descriptive name for the rule |
 | `type` | string | Yes | Rule type: `redirect`, `auto_reply`, `auto_reply_after_silence`, or `scheduled_message` |
-| `from_sender` | string | For redirect/auto_reply | Sender name or number to match (case-insensitive substring) |
+| `from_sender` | string | For redirect/auto_reply | Sender name or number to match (case-insensitive substring). Use `"*"` to match everyone |
+| `excluded_senders` | string | No | Contacts to skip when `from_sender` is broad. Inline `;`-list, a `.json` file path, or an `http(s)` URL. File/URL sources are re-read per message |
 | `to_receivers` | array | For redirect/scheduled | List of phone numbers to forward/send to |
 | `reply_text` | string | For auto_reply | Text to send as automatic reply |
 | `silence_duration_secs` | integer | For auto_reply_after_silence | Silence duration in seconds before auto-reply triggers |
