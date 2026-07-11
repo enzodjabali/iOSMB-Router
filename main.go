@@ -900,15 +900,27 @@ func keepAlive() {
 }
 
 // Helper functions
+func envValue(key string) string {
+	if path := strings.TrimSpace(os.Getenv(key + "_FILE")); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("ERROR: %s_FILE is set to %q but the file could not be read: %v", key, path, err)
+		} else {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	return os.Getenv(key)
+}
+
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := envValue(key); value != "" {
 		return value
 	}
 	return defaultValue
 }
 
 func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
+	if value := envValue(key); value != "" {
 		var result int
 		fmt.Sscanf(value, "%d", &result)
 		return result
@@ -917,7 +929,7 @@ func getEnvInt(key string, defaultValue int) int {
 }
 
 func getEnvBool(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
+	if value := envValue(key); value != "" {
 		return value == "true" || value == "1"
 	}
 	return defaultValue
